@@ -24,6 +24,8 @@ import numpy as np
 import pandas as pd
 from dateutil import parser as dtparser
 
+from .city_priority import city_prioritisation
+
 # =============================================================================
 # STAGE MAPPING TABLES (Rule 3: stage_raw / stage_clean / pipeline_status)
 # =============================================================================
@@ -662,6 +664,10 @@ def run_cleaning(df, date_anchor=None, remove_non_uk=False):
       city_spend_tier_breakdown: DataFrame, one row per city with Tier
         1/2/3/Unknown lead counts + a Total column, sorted by Total
         descending (see city_spend_tier_breakdown())
+      city_prioritisation: DataFrame, one row per city (Physical Store
+        leads with a known city only) ranked by an explainable
+        priority_score combining density, spend potential, pipeline
+        warmth, and win rate - see city_priority.city_prioritisation()
       flagged_pairs: list of location-conflict pairs from Rule 2
       qa: list of (check_name, passed, detail) tuples from Rule 13
     """
@@ -774,6 +780,10 @@ def run_cleaning(df, date_anchor=None, remove_non_uk=False):
     log['spend_tier_counts'] = qualified_df['spend_tier'].value_counts().to_dict()
 
     city_breakdown = city_spend_tier_breakdown(qualified_df)
+    city_priority = city_prioritisation(qualified_df)
+    if not city_priority.empty:
+        log['top_priority_city'] = city_priority.iloc[0]['city']
+        log['top_priority_city_reasoning'] = city_priority.iloc[0]['priority_reasoning']
 
     # Rule 13 - QA checks, run against the qualified sheet (the one that
     # actually ships as the Cleaned Dataset).
@@ -785,6 +795,7 @@ def run_cleaning(df, date_anchor=None, remove_non_uk=False):
         'qualified': qualified_df.reset_index(drop=True),
         'disqualified': disqualified_df.reset_index(drop=True),
         'city_spend_tier_breakdown': city_breakdown,
+        'city_prioritisation': city_priority,
         'log': log,
         'flagged_pairs': flagged_pairs,
         'qa': qa,

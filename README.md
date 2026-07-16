@@ -359,6 +359,49 @@ majority of leads are concentrated - e.g. on the current dataset,
 London (52 leads) and the no-city-recorded online-reseller bucket (62
 leads) dominate, together over two-thirds of the qualified list.
 
+### City prioritisation - "which city should we go after next, and why?"
+
+`city_priority.py`'s `city_prioritisation()` answers this directly, on
+its own **City Prioritisation** sheet. It's restricted to Physical
+Store leads with a known city - online resellers are reached by
+Instagram DM, not a city visit, so "which city" has no meaning for
+them, and a lead with no city on record can't inform a city-level
+decision either.
+
+Each city gets a `priority_score` combining four signals, each
+normalised 0-1 across the cities present so different units (counts,
+£, ratios) combine sensibly:
+
+- **Density** (25%) - how many genuine physical-store leads are
+  already there
+- **Spend potential** (35%) - total addressable monthly spend
+  (`est_monthly_spend_gbp` summed across the city's leads) - weighted
+  highest since it's the closest proxy for revenue
+- **Pipeline warmth** (25%) - the proportion of leads already Engaged
+  or in an Opportunity stage, vs. still cold
+- **Win rate** (15%) - won customers vs. lost/churned leads, weighted
+  lowest since it's often the smallest-sample signal per city
+
+The score is never presented alone: every city also gets a
+`priority_reasoning` string built from its own real numbers and its
+rank on each signal relative to the other cities (e.g. *"52 qualified
+physical-store leads (#1 of 11 by density); an estimated
+£157,673/month combined spend potential (#1 of 11); 37% of the
+pipeline already warm (#7 of 11); an 18% win rate (2 won vs 9
+lost/churned)."*) - so the ranking is always explainable, never a
+black-box number. Cities with fewer than 3 decided (won+lost) leads
+have their win rate shown but explicitly flagged as **directional
+only** - a 100% win rate from one deal isn't the same claim as one
+from ten. Cities with zero decided leads get "no won/lost history yet"
+rather than being penalised to zero for lacking data they've simply
+never had the chance to generate.
+
+On the current dataset, **London ranks #1** - by a wide margin on both
+density and spend potential, despite a relatively low win rate and mid-
+table warmth, which is itself worth a debrief conversation (a lot of
+volume that hasn't converted yet vs. smaller cities converting a
+larger share of a colder pipeline).
+
 ### The contactability_score contradiction
 
 The brief's own scoring table is internally inconsistent: "2 = Missing
@@ -463,11 +506,17 @@ as a safety net over the authored content.
   3-days-ago -> Deferred + 10-day follow-up case, Engaged/Opportunity
   leads never being labelled Cold, and the specificity test on both a
   generic and a genuinely specific line.
+- `test_city_priority.py` - online retailers and unknown-city leads
+  excluded, higher density/spend/warmth genuinely ranking a city
+  first, win_rate correctly missing (not zero) with no decided leads,
+  the small-sample directional-only flag, and that the reasoning cites
+  real numbers rather than generic text.
 - `test_regression_crm.py` - the golden-file test: **188 unique
   business groups** and **164 qualified leads** on the real export,
-  after Rule 9.5. If either number changes, the test fails loudly - a
-  deliberate, reviewed change to dedup or qualification logic, not a
-  silent regression.
+  after Rule 9.5, plus a check that London (the real top city by
+  density and spend) always ranks #1. If either count changes, the
+  test fails loudly - a deliberate, reviewed change to dedup or
+  qualification logic, not a silent regression.
 
 ## Part 1 tests and the regression golden numbers
 
@@ -506,6 +555,7 @@ src/vintage_lead_engine/
     crm_cleaning.py       # Part 2: CRM cleaning rules (dedup, stages, store type, etc.)
     outreach.py          # Part 2: outreach eligibility + timing rules (deterministic)
     outreach_content.py  # Part 2: authored message content (see Part 2 section above)
+    city_priority.py     # Part 2: city prioritisation scoring + reasoning
     excel_output.py       # workbook builders for both Part 1 and Part 2
     cli.py                # `run` / `clean-crm` / `generate-outreach`
 data/

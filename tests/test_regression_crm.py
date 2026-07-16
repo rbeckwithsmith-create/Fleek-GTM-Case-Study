@@ -100,3 +100,13 @@ def test_city_spend_tier_breakdown_totals_match_qualified_count(cleaning_result)
     assert breakdown["Total"].sum() == cleaning_result["log"]["qualified_leads"]
     # sorted descending by total leads
     assert list(breakdown["Total"]) == sorted(breakdown["Total"], reverse=True)
+
+
+def test_city_prioritisation_top_city_on_the_real_export(cleaning_result):
+    # London has by far the most physical-store leads and the highest
+    # spend potential on the real export - it should rank #1 regardless
+    # of exactly how the weights are tuned in future.
+    priority = cleaning_result["city_prioritisation"]
+    assert priority.iloc[0]["city"] == "London"
+    assert priority.iloc[0]["priority_rank"] == 1
+    assert priority["priority_score"].is_monotonic_decreasing

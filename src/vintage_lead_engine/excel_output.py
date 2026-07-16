@@ -40,7 +40,7 @@ POSSIBLE_DUPLICATE_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", 
 WRAP_COLUMNS = {
     "qualification_reason", "tier_reasoning", "top_review",
     "research_notes", "price_band", "notes", "SUGGESTED_MESSAGE",
-    "MESSAGE_LOGIC", "_ELIGIBILITY_REASON",
+    "MESSAGE_LOGIC", "_ELIGIBILITY_REASON", "priority_reasoning",
 }
 
 DEFAULT_MAX_STYLED_ROWS = 2000
@@ -318,17 +318,30 @@ _COLOUR_LEGEND_NOTE = (
 )
 
 
+_CITY_PRIORITY_NOTE = (
+    "Ranked by priority_score (density 25% + spend potential 35% + pipeline warmth 25% + win rate 15%, "
+    "each normalised 0-1 across cities). priority_reasoning spells out the real numbers behind every "
+    "score - never trust the score alone without reading it. Physical Store leads with a known city only; "
+    "online resellers are reached by DM, not a city visit, and leads with no city can't inform this."
+)
+
+
 def build_crm_workbook(qualified_df: pd.DataFrame, disqualified_df: pd.DataFrame,
                         log: dict, qa: list, flagged_pairs: list, output_path: str,
-                        city_spend_tier_breakdown: pd.DataFrame = None) -> dict:
+                        city_spend_tier_breakdown: pd.DataFrame = None,
+                        city_prioritisation: pd.DataFrame = None) -> dict:
     """Builds the Part 2 workbook: Cleaned Dataset, Disqualified Leads,
-    Cleaning Log, Channel & CRM Summary. qualified_df should already
-    carry the Part B outreach columns (OUTREACH_TYPE, SUGGESTED_MESSAGE,
-    MESSAGE_LOGIC, PERSONALISATION_ANGLE, RECOMMENDED_FOLLOW_UP_DATE) if
+    Cleaning Log, Channel & CRM Summary, City Prioritisation.
+    qualified_df should already carry the Part B outreach columns
+    (OUTREACH_TYPE, SUGGESTED_MESSAGE, MESSAGE_LOGIC,
+    PERSONALISATION_ANGLE, RECOMMENDED_FOLLOW_UP_DATE) if
     generate-outreach has been run; if not, the Cleaned Dataset sheet
     simply omits them. city_spend_tier_breakdown (see
     crm_cleaning.city_spend_tier_breakdown()), if given, is rendered as
-    a table on the Channel & CRM Summary sheet."""
+    a table on the Channel & CRM Summary sheet. city_prioritisation
+    (see city_priority.city_prioritisation()), if given, gets its own
+    sheet - it's the answer to "which city should we go after next".
+    """
     wb = Workbook()
     wb.remove(wb.active)
 
@@ -338,6 +351,10 @@ def build_crm_workbook(qualified_df: pd.DataFrame, disqualified_df: pd.DataFrame
     _write_sheet(wb, "Disqualified Leads", disqualified_df, freeze_first_col=True)
     _write_log_sheet(wb, log, qa, flagged_pairs)
     _write_summary_sheet(wb, qualified_df, city_spend_tier_breakdown=city_spend_tier_breakdown)
+
+    if city_prioritisation is not None and not city_prioritisation.empty:
+        _write_sheet(wb, "City Prioritisation", city_prioritisation, freeze_first_col=True,
+                     note=_CITY_PRIORITY_NOTE)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
     wb.save(output_path)
