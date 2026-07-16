@@ -275,7 +275,176 @@ itself - it's the single factor that most changes whether a Tier 1
 result is actually a viable wholesale prospect, since a charity-run or
 centrally-buying chain may not need wholesale stock at all.
 
-## Tests and the regression golden numbers
+## Part 2 - CRM Cleaning & Outreach
+
+Part 2 is self-contained: it works only on `data/part2_leads_and_customers.csv`
+(an unmodified export of the `Part2_leads_and_customers` worksheet, 206
+rows of leads and customers across every pipeline stage) and never
+touches Part 1's Manchester scrape data or engine. It runs in two
+stages: **CRM cleaning** (`crm_cleaning.py`) turns the raw export into
+an analysis-ready database, then **outreach recommendations**
+(`outreach.py` + `outreach_content.py`) generate a suggested message
+(or a documented reason not to send one) for every cleaned, qualified
+lead.
+
+### Running it
+
+```bash
+vintage-lead-engine clean-crm --input data/part2_leads_and_customers.csv --output output/crm_cleaned.xlsx
+vintage-lead-engine generate-outreach --input data/part2_leads_and_customers.csv --output output/crm_with_outreach.xlsx
+```
+
+`clean-crm` runs the cleaning rules alone. `generate-outreach` runs
+cleaning and adds the five outreach columns (`SUGGESTED_MESSAGE`,
+`MESSAGE_LOGIC`, `RECOMMENDED_FOLLOW_UP_DATE`, `OUTREACH_TYPE`,
+`PERSONALISATION_ANGLE`) onto the same Cleaned Dataset sheet. Both
+accept `--anchor-date YYYY-MM-DD` (a reproducible "today" for date
+parsing and Last-Contacted timing - omit it and it defaults to the
+real current date) and `--remove-non-uk` (see Rule 5 below).
+
+### CRM cleaning: what it does and the two deliberate deviations from the literal brief
+
+`crm_cleaning.py` is restructured from a validated reference
+implementation built and checked against a real cleaning run on this
+exact dataset - every rule's logic (the dedup guard, the stage maps,
+`classify_store_type`, `flag_non_uk`, `parse_date_flex`, the
+contactability scoring) is preserved from that reference, not
+re-derived. Two places deliberately deviate from the brief's literal
+instructions, because that's what the real client wanted:
+
+- **Rule 5 (non-UK leads)**: the brief says remove non-UK leads
+  entirely; this pipeline **flags them instead** (`--remove-non-uk`
+  switches to the literal behaviour - it's a one-line toggle, not a
+  rebuild). Flagging retains visibility into international leads
+  rather than silently losing that data. Separately, rows with **no**
+  location data at all (no address, phone, or website - typically
+  online marketplace sellers) get a distinct `Unverified Location`
+  flag rather than being assumed UK or flagged non-UK - country is
+  never guessed from a name or product category.
+- **Rule 9.5 (category/name qualification)**: not in the original Part
+  2 brief at all. Added for consistency with Part 1 - a charity shop,
+  record store, or antique store showing up as a "lead" here is the
+  same category miss as in the Manchester scrape, just surfacing in
+  different data. Reuses Part 1's qualification philosophy (hard-
+  disqualify categories, the charity-name override with a
+  strong-evidence bar) but is not a call into `qualify.py`: this leads
+  list's qualifying categories (`Vintage clothing store`, `Thrift
+  store`, etc.) already read as clothing-relevant by name, so - unlike
+  Part 1's raw Maps scrape - no review-text confirmation gate is
+  needed for them. Disqualified leads are never deleted; they stay
+  visible on their own sheet with a reason, same as Part 1.
+
+### The contactability_score contradiction
+
+The brief's own scoring table is internally inconsistent: "2 = Missing
+three" and "1 = Only one contact method" both describe having exactly
+1 of 4 contact methods (email/phone/website/Instagram), but assign
+different scores. Resolved by trusting the more structured "missing N"
+reading - a clean monotonic scale (0 methods=0, 1=2, 2=3, 3=4, 4=5) -
+since 5 of the 6 rows in the brief's table agree on that reading. This
+is documented in the generated Cleaning Log sheet, not silently picked.
+
+### Two real bugs found running this against the real export
+
+Building this against real data (not just the brief's abstract rules)
+surfaced two genuine defects, both fixed and covered by regression
+tests:
+
+1. **Dates silently landing in the future.** `parse_date_flex()` used
+   `dayfirst=True` unconditionally. dateutil applies day-before-month
+   disambiguation to the first two ambiguous numeric fields it finds,
+   which is wrong once the year already comes first - "2026/04/10" was
+   being read as 4 October instead of 10 April, corrupting
+   `last_contact_date` and, downstream, every Last-Contacted timing
+   decision in Part B. Fixed by only using `dayfirst=True` when the
+   string does not already start with a 4-digit year.
+2. **A "last purchase" date that was actually in the future.** Rule 6's
+   bare-date year-inference has a 60-day grace window (a bare date
+   within 60 days of the anchor is assumed to be near-present, not
+   rolled back a year) - reasonable for `last_contact_date`, which can
+   legitimately reference a near-term scheduled contact. But a
+   *purchase* can never be in the future at all, so a bare "18 Aug"
+   `last_purchase_date` landing 33 days after the anchor (inside that
+   60-day grace window) was left as a nonsensical future purchase date.
+   Fixed with a `must_not_be_future` flag on `parse_date_flex()` that
+   removes the grace window entirely, applied only to
+   `last_purchase_date`.
+
+Neither fix changes the pinned qualified/duplicate-group counts below
+- date parsing doesn't affect qualification or which businesses get
+merged, only the merged group's date value and duplicate tie-breaking.
+
+### Deduplication: the guard that matters most
+
+`find_duplicate_groups()` matches on store name, website, Instagram
+handle, phone, address, and lat/lng - but never merges on a matching
+field alone. A real run of this exact dataset found genuinely
+unrelated businesses coincidentally sharing an identical Instagram
+handle or address template across different countries; every candidate
+match (strong key or weak) is checked against a city/country
+contradiction first, and contradicting pairs are flagged for manual
+review (`Possible Duplicate - Unverified`, shaded yellow in the
+Cleaned Dataset sheet) instead of merged or silently dropped. Verified
+directly in `tests/test_crm_cleaning.py` and against the real export,
+where all 7 flagged pairs are genuine cross-city/cross-country
+coincidences, not real duplicates.
+
+### Outreach recommendations - and what "generated directly in this session" means
+
+Part B's five columns were authored directly in the Claude Code
+session that built this pipeline, for the specific batch of qualified
+leads in `data/part2_leads_and_customers.csv` - **not** via a
+standalone script calling the Anthropic API. That authored content
+lives in `outreach_content.py` as hand-written personalisation angles
+for every distinct product-focus phrase actually observed in the
+cleaned `notes` field, hand-written clauses for every distinct
+objection phrase, and stage-appropriate templates (Cold / Inbound /
+Customer Check-In / Churned-Win-Back / Re-Engagement), combined per
+lead using only that lead's own real data - never templated boilerplate
+praise, never a fabricated detail. French/German/Dutch translations are
+included for the France/Germany/Netherlands leads in this batch.
+
+This means `generate-outreach` **is** re-runnable - it's real, tested
+code, not a one-off script - but it is scoped to this batch's
+vocabulary. Pointed at a future export with notes phrases it doesn't
+recognise, it degrades honestly: a lead with no usable personalisation
+signal gets a blank `SUGGESTED_MESSAGE` and a `MESSAGE_LOGIC` explaining
+why, never a generic or invented message. If a genuinely general-purpose
+version (one that calls an LLM per lead, reading its API key from a
+project-local `.env` file) is wanted later, that's a different,
+larger piece of work - it has not been built here.
+
+Eligibility is decided before any drafting: `In Conversation`, `Not
+Interested`, `Closed Lost`, and `Do Not Contact` stages never get a
+message (In Conversation specifically never invents prior-conversation
+content, since there's no visibility into what's actually been said).
+A lead contacted within 7 days gets `OUTREACH_TYPE=Deferred` and a
+follow-up date exactly 10 days after `last_contact_date`, rather than a
+second message. The "500 other retailers" test - reject any line that
+would read identically sent to any business - is a real function
+(`outreach.passes_specificity_test`), not just a description, and acts
+as a safety net over the authored content.
+
+### Part 2 tests and regression numbers
+
+- `test_crm_cleaning.py` - the dedup location-conflict guard directly,
+  stage-mapping granularity (Visit Booked vs Meeting Booked, Trial
+  Pending vs Trialing, Interested/Warm Lead alignment, Inbound staying
+  separate), store type/confidence rules, Rule 5's flag-vs-remove and
+  Unverified-Location distinction, date parsing (including the exact
+  string that previously mis-parsed), category normalisation, the Rule
+  9.5 extension, and the contactability_score resolution.
+- `test_outreach_eligibility.py` - all four excluded stages, the exact
+  3-days-ago -> Deferred + 10-day follow-up case, Engaged/Opportunity
+  leads never being labelled Cold, and the specificity test on both a
+  generic and a genuinely specific line.
+- `test_regression_crm.py` - the golden-file test: **188 unique
+  business groups** and **164 qualified leads** on the real export,
+  after Rule 9.5. If either number changes, the test fails loudly - a
+  deliberate, reviewed change to dedup or qualification logic, not a
+  silent regression.
+
+## Part 1 tests and the regression golden numbers
 
 ```bash
 pytest
@@ -305,15 +474,19 @@ and pull request against Python 3.9 and 3.11.
 
 ```
 src/vintage_lead_engine/
-    qualify.py       # qualification (category + review + name)
-    cluster.py       # spatially-partitioned complete-linkage clustering
-    tier.py          # Tier 1/2/3 assignment
-    enrichment.py     # real-shop enrichment data model + loader
-    excel_output.py  # 3(+1)-sheet workbook builder
-    cli.py           # `vintage-lead-engine run ...`
+    qualify.py           # Part 1: qualification (category + review + name)
+    cluster.py           # Part 1: spatially-partitioned complete-linkage clustering
+    tier.py              # Part 1: Tier 1/2/3 assignment
+    enrichment.py        # Part 1: real-shop enrichment data model + loader
+    crm_cleaning.py       # Part 2: CRM cleaning rules (dedup, stages, store type, etc.)
+    outreach.py          # Part 2: outreach eligibility + timing rules (deterministic)
+    outreach_content.py  # Part 2: authored message content (see Part 2 section above)
+    excel_output.py       # workbook builders for both Part 1 and Part 2
+    cli.py                # `run` / `clean-crm` / `generate-outreach`
 data/
     part1_manchester_scrape.csv       # unmodified dummy scrape (121 rows)
     real_manchester_shortlist.csv     # 11 real, researched Manchester shops
+    part2_leads_and_customers.csv     # unmodified leads/customers export (206 rows)
 tests/                # pytest suite, see above
 output/               # generated workbooks land here (gitignored)
 ```

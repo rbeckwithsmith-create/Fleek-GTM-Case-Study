@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vintage-lead-engine"
 version = "0.1.0"
-description = "Qualify, tier, and geographically cluster vintage-clothing-shop leads from a Google Maps scrape."
+description = "Qualify, tier, and cluster vintage-clothing-shop leads from a Google Maps scrape, and clean/generate outreach for a CRM leads export."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
