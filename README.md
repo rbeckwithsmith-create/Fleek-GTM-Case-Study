@@ -64,7 +64,7 @@ Requires Python 3.9+. Dependencies: pandas, numpy, scipy, openpyxl
 ```bash
 vintage-lead-engine run \
   --input data/part1_manchester_scrape.csv \
-  --output output/manchester_results.xlsx \
+  --output "output/PART 1 - Which shops do I visit.xlsx" \
   --real-shortlist data/real_manchester_shortlist.csv
 ```
 
@@ -291,7 +291,7 @@ lead.
 
 ```bash
 vintage-lead-engine clean-crm --input data/part2_leads_and_customers.csv --output output/crm_cleaned.xlsx
-vintage-lead-engine generate-outreach --input data/part2_leads_and_customers.csv --output output/crm_with_outreach.xlsx
+vintage-lead-engine generate-outreach --input data/part2_leads_and_customers.csv --output "output/PART 2 - How do I reach them.xlsx"
 ```
 
 `clean-crm` runs the cleaning rules alone. `generate-outreach` runs

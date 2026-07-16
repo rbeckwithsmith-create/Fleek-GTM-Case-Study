@@ -1,10 +1,10 @@
 """
 Command-line entrypoint.
 
-    vintage-lead-engine run --input data/part1_manchester_scrape.csv --output output/manchester_results.xlsx
+    vintage-lead-engine run --input data/part1_manchester_scrape.csv --output "output/PART 1 - Which shops do I visit.xlsx"
     vintage-lead-engine run --input <any_future_scrape>.csv --output <results>.xlsx
     vintage-lead-engine clean-crm --input data/part2_leads_and_customers.csv --output output/crm_cleaned.xlsx
-    vintage-lead-engine generate-outreach --input data/part2_leads_and_customers.csv --output output/crm_with_outreach.xlsx
+    vintage-lead-engine generate-outreach --input data/part2_leads_and_customers.csv --output "output/PART 2 - How do I reach them.xlsx"
 
 The Part 1 pipeline (qualify -> cluster -> tier -> workbook) is
 identical for any scrape - no hardcoded row lookups, no city-specific
