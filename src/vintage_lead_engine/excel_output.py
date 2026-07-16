@@ -1,13 +1,14 @@
 """
 Builds the BDR-facing Excel workbook.
 
-Sheet 1 - Enriched Data: every original scrape field + all enrichment
-    columns + Tier classification, for every row (qualified AND
-    disqualified - nothing is deleted).
-Sheet 2 - Ranked Lead List: sorted Tier 1 -> Tier 2 -> Tier 3 ->
-    Disqualified, with an auto-filter enabled so disqualified rows
-    stay visible and filterable rather than hidden.
-Sheet 3 - Cluster Analysis: one row per cluster with its size, Tier
+Sheet 1 - Enriched Data (name configurable via main_sheet_name): every
+    original scrape field + all enrichment columns + Tier
+    classification, for every row (qualified AND disqualified -
+    nothing is deleted). Auto-filter is enabled so disqualified rows
+    stay visible and filterable rather than hidden; sort/filter by the
+    tier column directly on this sheet rather than a separate ranked
+    copy of the same rows.
+Sheet 2 - Cluster Analysis: one row per cluster with its size, Tier
     1/2/3 counts, and which named shops it contains.
 Real Shop Demo - the separate, real-shop enrichment worked example
     (see enrichment.py), clearly labelled as a worked example and never
@@ -16,9 +17,9 @@ Real Shop Demo - the separate, real-shop enrichment worked example
 Scale: a fully-styled Excel sheet with tens of thousands of rows is
 impractical to build and to browse. If `full_df` is larger than
 `max_styled_rows`, the complete result is written to CSV alongside the
-workbook and the styled Sheet 1 / Sheet 2 are capped to a bounded top
-slice (Tier 1 + Tier 2 rows first, then Tier 3, up to the cap) - see
-the README for the exact threshold and rationale.
+workbook and the styled main sheet is capped to a bounded top slice
+(Tier 1 + Tier 2 rows first, then Tier 3, up to the cap) - see the
+README for the exact threshold and rationale.
 """
 import os
 
@@ -139,7 +140,8 @@ def _cap_for_styling(df: pd.DataFrame, max_rows: int) -> pd.DataFrame:
 
 def build_workbook(full_df: pd.DataFrame, output_path: str,
                     real_shop_df: pd.DataFrame = None,
-                    max_styled_rows: int = DEFAULT_MAX_STYLED_ROWS) -> dict:
+                    max_styled_rows: int = DEFAULT_MAX_STYLED_ROWS,
+                    main_sheet_name: str = "Enriched Data") -> dict:
     """full_df must already carry qualifies/qualification_reason, tier/
     tier_reasoning, and (for qualified rows) cluster_id/cluster_size -
     i.e. it's the merged qualified+disqualified, tiered, clustered
@@ -148,6 +150,12 @@ def build_workbook(full_df: pd.DataFrame, output_path: str,
     real_shop_df, if given, must already be qualified+tiered the same
     way (see enrichment.py + cli.py) and is written to its own sheet,
     clearly separate from the dummy-scrape sheets.
+
+    main_sheet_name lets a specific run relabel the primary sheet (e.g.
+    "Dummy Data" for the placeholder-name Manchester scrape) without
+    hardcoding that label into the reusable default - any other scrape
+    run through this pipeline is not necessarily dummy data, so the
+    generic "Enriched Data" name stays the default.
 
     Returns a dict describing what was written (paths + row counts) so
     the CLI can report it to the user."""
@@ -170,8 +178,7 @@ def build_workbook(full_df: pd.DataFrame, output_path: str,
     wb = Workbook()
     wb.remove(wb.active)
 
-    _write_sheet(wb, "Enriched Data", styled_df, freeze_first_col=True)
-    _write_sheet(wb, "Ranked Lead List", _ranked(styled_df), freeze_first_col=True)
+    _write_sheet(wb, main_sheet_name, styled_df, freeze_first_col=True)
     _write_sheet(wb, "Cluster Analysis", _cluster_analysis(styled_df))
 
     if real_shop_df is not None and not real_shop_df.empty:

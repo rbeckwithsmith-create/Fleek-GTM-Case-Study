@@ -79,6 +79,7 @@ def _run(args):
         full, args.output,
         real_shop_df=real_shop_df,
         max_styled_rows=args.max_styled_rows,
+        main_sheet_name=args.main_sheet_name,
     )
 
     n_qualified = int((full["tier"] != "Disqualified").sum())
@@ -169,6 +170,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--real-shortlist", default=None,
                         help="Optional path to a real-shop enrichment shortlist CSV "
                              "(see data/real_manchester_shortlist.csv) to include as a separate demo sheet")
+    run_p.add_argument("--main-sheet-name", default="Enriched Data",
+                        help="Label for the main data sheet (default 'Enriched Data'). Use e.g. 'Dummy Data' "
+                             "for a placeholder-name scrape like the Manchester one, to make that explicit "
+                             "to anyone opening the workbook")
     run_p.set_defaults(func=_run)
 
     clean_p = sub.add_parser("clean-crm", help="Run the Part 2 CRM cleaning rules on the leads/customers CSV")

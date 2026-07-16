@@ -47,8 +47,8 @@ review text + business name**, in a fixed priority order:
    check.
 
 Disqualified listings are never deleted - every row keeps its
-`qualification_reason` and stays visible on the "Ranked Lead List"
-sheet (filterable, not hidden), for auditability.
+`qualification_reason` and stays visible on the main data sheet
+(filterable, not hidden), for auditability.
 
 ## Installation
 
@@ -147,15 +147,17 @@ in it.
 
 Running `vintage-lead-engine run` produces a workbook with:
 
-1. **Enriched Data** - every original scrape field + all enrichment
-   columns + Tier classification, for every row, qualified and
-   disqualified alike.
-2. **Ranked Lead List** - sorted Tier 1 → Tier 2 → Tier 3 →
-   Disqualified, with auto-filter enabled so disqualified rows stay
-   visible and filterable rather than hidden or deleted.
-3. **Cluster Analysis** - one row per cluster: size, Tier 1/2/3 counts,
+1. **Enriched Data** (name configurable via `--main-sheet-name`, e.g.
+   "Dummy Data" for the placeholder-name Manchester scrape) - every
+   original scrape field + all enrichment columns + Tier
+   classification, for every row, qualified and disqualified alike.
+   Already sorted Tier 1 → Tier 2 → Tier 3 → Disqualified, with
+   auto-filter enabled so disqualified rows stay visible and
+   filterable rather than hidden or deleted - there's no separate
+   "ranked" copy of the same rows to keep the workbook lean.
+2. **Cluster Analysis** - one row per cluster: size, Tier 1/2/3 counts,
    and which named shops are in it.
-4. **Real Shop Demo (Manchester)** and **Real Shop Demo - Clusters** -
+3. **Real Shop Demo (Manchester)** and **Real Shop Demo - Clusters** -
    only present when `--real-shortlist` is passed; the same
    Enriched-Data-style and Cluster-Analysis-style views, computed for
    the real shortlist instead - see below.
