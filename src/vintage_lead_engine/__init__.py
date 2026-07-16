@@ -4,6 +4,7 @@ from .tier import assign_tier, tier_dataframe, tier_dataframe_from_scrape
 from .enrichment import load_real_shortlist
 from .excel_output import build_workbook
 from .crm_cleaning import run_cleaning, qualify_lead, contactability_score
+from .outreach import build_eligibility_frame, assess_eligibility, passes_specificity_test
 
 __all__ = [
     "qualify_dataframe",
@@ -17,6 +18,9 @@ __all__ = [
     "run_cleaning",
     "qualify_lead",
     "contactability_score",
+    "build_eligibility_frame",
+    "assess_eligibility",
+    "passes_specificity_test",
 ]
 
 __version__ = "0.1.0"

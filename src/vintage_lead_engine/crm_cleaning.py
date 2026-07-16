@@ -357,13 +357,26 @@ def parse_date_flex(s, anchor):
     the dataset), rolled back a year if that would place them
     implausibly in the future relative to anchor - document this as an
     assumption in the cleaning log, since it's a real ambiguity, not a
-    certainty."""
+    certainty.
+
+    BUG FIX (found running this against the real export): dateutil's
+    dayfirst=True applies day-before-month disambiguation to the first
+    two numeric fields it sees, which is wrong once the year already
+    comes first (e.g. "2026/04/10") - dayfirst=True was swapping that
+    into 4 October instead of 10 April, silently producing last-contact
+    dates in the future. Fixed by only passing dayfirst=True when the
+    string does NOT already start with a 4-digit year (in which case
+    yearfirst=True is used instead, and the remaining two fields are
+    read in their natural month-then-day order) - this preserves
+    dayfirst behaviour for genuinely ambiguous DD/MM/YYYY strings while
+    correctly reading YYYY/MM/DD and YYYY-MM-DD as year-month-day."""
     if pd.isna(s) or str(s).strip() == '':
         return pd.NaT
     s = str(s).strip()
     has_year = bool(re.search(r'\b(19|20)\d\d\b', s))
+    year_first = bool(re.match(r'^(19|20)\d\d[/-]', s))
     try:
-        dt = dtparser.parse(s, dayfirst=True, default=anchor)
+        dt = dtparser.parse(s, dayfirst=not year_first, yearfirst=year_first, default=anchor)
     except Exception:
         return pd.NaT
     if not has_year and dt > anchor + pd.Timedelta(days=60):
