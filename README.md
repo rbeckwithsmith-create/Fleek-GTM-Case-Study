@@ -334,6 +334,31 @@ instructions, because that's what the real client wanted:
   needed for them. Disqualified leads are never deleted; they stay
   visible on their own sheet with a reason, same as Part 1.
 
+### spend_tier and the city breakdown
+
+Not one of the original 13 rules - added on request. Every qualified
+lead gets a `spend_tier` based on `est_monthly_spend_gbp`:
+
+- **Tier 1** - GBP5,000+/month
+- **Tier 2** - GBP2,000-4,999/month
+- **Tier 3** - under GBP2,000/month
+- **Unknown** - no spend estimate on file (never silently defaulted to
+  Tier 3 - a missing estimate isn't the same thing as a confirmed
+  low-spend lead)
+
+This is deliberately named `spend_tier`, not `tier` - Part 1's
+Manchester pipeline already has a "Tier 1/2/3" concept driven by
+locations/reviews/Instagram/brand fit, a completely different scoring
+basis. Reusing the bare name `tier` here would be exactly the silent
+field-name collision this project's own known pitfalls warn against.
+
+The Channel & CRM Summary sheet also gets a **lead count by city and
+spend_tier** table (`crm_cleaning.city_spend_tier_breakdown()`), sorted
+by total leads descending, so it's immediately visible where the
+majority of leads are concentrated - e.g. on the current dataset,
+London (52 leads) and the no-city-recorded online-reseller bucket (62
+leads) dominate, together over two-thirds of the qualified list.
+
 ### The contactability_score contradiction
 
 The brief's own scoring table is internally inconsistent: "2 = Missing

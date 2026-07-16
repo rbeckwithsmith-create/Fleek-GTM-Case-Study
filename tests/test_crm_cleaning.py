@@ -3,6 +3,8 @@ import pandas as pd
 from vintage_lead_engine.crm_cleaning import (
     CATEGORY_MAP,
     STAGE_CLEAN_MAP,
+    assign_spend_tier,
+    city_spend_tier_breakdown,
     classify_store_type,
     clean_stage,
     contactability_score,
@@ -267,3 +269,46 @@ def test_contactability_score_monotonic_scale():
     assert contactability_score(no_methods) == 0
     assert contactability_score(one_method) == 2
     assert contactability_score(all_methods) == 5
+
+
+# ---------------------------------------------------------------------------
+# spend_tier extension: GBP5k+ = Tier 1, GBP2k-4,999 = Tier 2, under GBP2k = Tier 3
+# ---------------------------------------------------------------------------
+
+def test_spend_tier_boundaries():
+    assert assign_spend_tier(4999) == "Tier 2"
+    assert assign_spend_tier(5000) == "Tier 1"
+    assert assign_spend_tier(1999) == "Tier 3"
+    assert assign_spend_tier(2000) == "Tier 2"
+
+
+def test_spend_tier_missing_value_is_unknown_not_tier_3():
+    assert assign_spend_tier(float("nan")) == "Unknown"
+    assert assign_spend_tier(None) == "Unknown"
+
+
+def test_city_spend_tier_breakdown_sorted_by_total_descending():
+    df = pd.DataFrame([
+        {"city": "London", "spend_tier": "Tier 1"},
+        {"city": "London", "spend_tier": "Tier 2"},
+        {"city": "London", "spend_tier": "Tier 2"},
+        {"city": "Leeds", "spend_tier": "Tier 3"},
+    ])
+    out = city_spend_tier_breakdown(df)
+    assert list(out.columns) == ["city", "Tier 1", "Tier 2", "Tier 3", "Unknown", "Total"]
+    assert out.iloc[0]["city"] == "London"
+    assert out.iloc[0]["Total"] == 3
+    assert out.iloc[0]["Tier 1"] == 1
+    assert out.iloc[0]["Tier 2"] == 2
+    assert out.iloc[1]["city"] == "Leeds"
+    assert out.iloc[1]["Total"] == 1
+
+
+def test_spend_tier_column_name_does_not_collide_with_part1_tier():
+    # Deliberately not named "tier" - Part 1's Manchester pipeline already
+    # uses that name for a completely different (locations/reviews/
+    # Instagram/brand-fit based) scoring system.
+    df = pd.DataFrame([{"est_monthly_spend_gbp": 6000}])
+    df["spend_tier"] = df["est_monthly_spend_gbp"].apply(assign_spend_tier)
+    assert "tier" not in df.columns
+    assert df.loc[0, "spend_tier"] == "Tier 1"

@@ -77,3 +77,26 @@ def test_no_qualified_or_disqualified_row_has_a_blank_cell(cleaning_result):
         if col in qualified.columns:
             blanks = qualified[col].isna() | (qualified[col].astype(str).str.strip() == "")
             assert not blanks.any(), f"blank cells found in qualified.{col}"
+
+
+def test_spend_tier_present_on_every_row_and_correctly_bucketed(cleaning_result):
+    qualified = cleaning_result["qualified"]
+    assert qualified["spend_tier"].notna().all()
+    assert set(qualified["spend_tier"].unique()) <= {"Tier 1", "Tier 2", "Tier 3", "Unknown"}
+    for _, row in qualified.iterrows():
+        spend = row["est_monthly_spend_gbp"]
+        if pd.isna(spend):
+            assert row["spend_tier"] == "Unknown"
+        elif spend >= 5000:
+            assert row["spend_tier"] == "Tier 1"
+        elif spend >= 2000:
+            assert row["spend_tier"] == "Tier 2"
+        else:
+            assert row["spend_tier"] == "Tier 3"
+
+
+def test_city_spend_tier_breakdown_totals_match_qualified_count(cleaning_result):
+    breakdown = cleaning_result["city_spend_tier_breakdown"]
+    assert breakdown["Total"].sum() == cleaning_result["log"]["qualified_leads"]
+    # sorted descending by total leads
+    assert list(breakdown["Total"]) == sorted(breakdown["Total"], reverse=True)

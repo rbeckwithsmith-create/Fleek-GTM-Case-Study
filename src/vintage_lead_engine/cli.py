@@ -105,7 +105,7 @@ def _clean_crm(args):
     result = _run_crm_cleaning(args)
     info = build_crm_workbook(
         result["qualified"], result["disqualified"], result["log"], result["qa"], result["flagged_pairs"],
-        args.output,
+        args.output, city_spend_tier_breakdown=result["city_spend_tier_breakdown"],
     )
     csv_path = _csv_path_for(args.output)
     result["qualified"].to_csv(csv_path, index=False)
@@ -115,6 +115,7 @@ def _clean_crm(args):
           f"-> {log['qualified_leads']} qualified ({log['disqualified_by_rule_9_5']} disqualified by "
           f"category/charity-name qualification).")
     print(f"QA checks: {log['qa_checks_passed']}/{log['qa_checks_total']} passed.")
+    print(f"Spend tier counts: {log['spend_tier_counts']}.")
     print(f"Workbook written to {info['workbook']}.")
     print(f"Cleaned Dataset also written to {csv_path}.")
 
@@ -130,7 +131,7 @@ def _generate_outreach(args):
 
     info = build_crm_workbook(
         elig, result["disqualified"], result["log"], result["qa"], result["flagged_pairs"],
-        args.output,
+        args.output, city_spend_tier_breakdown=result["city_spend_tier_breakdown"],
     )
     csv_path = _csv_path_for(args.output)
     elig.to_csv(csv_path, index=False)
@@ -140,6 +141,7 @@ def _generate_outreach(args):
     print(f"Cleaned {result['log']['qualified_leads']} qualified leads -> {n_eligible} eligible for outreach "
           f"-> {n_drafted} messages drafted ({n_eligible - n_drafted} eligible but declined for lack of "
           f"personalisation).")
+    print(f"Spend tier counts: {result['log']['spend_tier_counts']}.")
     print(f"Workbook written to {info['workbook']}.")
     print(f"Cleaned Dataset + outreach columns also written to {csv_path}.")
 

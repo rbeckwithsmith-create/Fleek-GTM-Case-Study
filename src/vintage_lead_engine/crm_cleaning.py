@@ -555,6 +555,50 @@ def quality_flags(row, multi_website_ids=frozenset(), possible_duplicate_ids=fro
 
 
 # =============================================================================
+# EXTENSION beyond the original brief: spend_tier
+# =============================================================================
+# Not one of the original 13 rules - added on request. Deliberately
+# named `spend_tier`, not `tier`: Part 1's Manchester pipeline already
+# has a "Tier 1/2/3" concept driven by locations/reviews/Instagram/
+# brand fit, a completely different scoring basis. Reusing the bare
+# name "tier" here for a spend-based score would be exactly the silent
+# field-name collision this project's own known pitfalls warn against
+# (two different scoring systems writing to a field called "tier"), so
+# this one gets an unambiguous name instead.
+SPEND_TIER_1_THRESHOLD = 5000
+SPEND_TIER_2_THRESHOLD = 2000
+
+
+def assign_spend_tier(est_monthly_spend_gbp):
+    """Tier 1: GBP5,000+/month. Tier 2: GBP2,000-4,999. Tier 3: under
+    GBP2,000. A missing spend estimate is scored 'Unknown', never
+    silently defaulted to Tier 3 - a lead with no spend estimate on
+    file isn't the same thing as a confirmed low-spend lead."""
+    if pd.isna(est_monthly_spend_gbp):
+        return 'Unknown'
+    if est_monthly_spend_gbp >= SPEND_TIER_1_THRESHOLD:
+        return 'Tier 1'
+    if est_monthly_spend_gbp >= SPEND_TIER_2_THRESHOLD:
+        return 'Tier 2'
+    return 'Tier 3'
+
+
+def city_spend_tier_breakdown(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per city: total lead count plus Tier 1/2/3/Unknown
+    counts, sorted by total leads descending - so it's immediately
+    visible which cities the majority of leads are concentrated in,
+    not just an unordered pivot."""
+    pivot = pd.crosstab(df['city'], df['spend_tier'])
+    for col in ('Tier 1', 'Tier 2', 'Tier 3', 'Unknown'):
+        if col not in pivot.columns:
+            pivot[col] = 0
+    pivot = pivot[['Tier 1', 'Tier 2', 'Tier 3', 'Unknown']]
+    pivot['Total'] = pivot.sum(axis=1)
+    pivot = pivot.sort_values('Total', ascending=False).reset_index()
+    return pivot
+
+
+# =============================================================================
 # ORCHESTRATION - runs Rules 1-13 in sequence, end to end.
 #
 # The reference file above is a library of validated building blocks; it
@@ -593,9 +637,13 @@ def run_cleaning(df, date_anchor=None, remove_non_uk=False):
     literal "remove non-UK leads" instruction instead.
 
     Returns a dict with:
-      qualified: DataFrame of cleaned, qualified leads (Sheet 1)
+      qualified: DataFrame of cleaned, qualified leads (Sheet 1) - carries
+        a spend_tier column (see assign_spend_tier)
       disqualified: DataFrame of disqualified leads with reasons (Sheet 2)
       log: dict of counts/assumptions for the Cleaning Log (Sheet 3)
+      city_spend_tier_breakdown: DataFrame, one row per city with Tier
+        1/2/3/Unknown lead counts + a Total column, sorted by Total
+        descending (see city_spend_tier_breakdown())
       flagged_pairs: list of location-conflict pairs from Rule 2
       qa: list of (check_name, passed, detail) tuples from Rule 13
     """
@@ -700,6 +748,15 @@ def run_cleaning(df, date_anchor=None, remove_non_uk=False):
             possible_duplicate_ids=possible_duplicate_ids,
         )
 
+    # spend_tier extension (see docstring above assign_spend_tier) -
+    # est_monthly_spend_gbp is untouched by Rule 10's text-field fill,
+    # so a missing spend is still genuinely NaN here, not "unknown".
+    for target in (qualified_df, disqualified_df):
+        target['spend_tier'] = target['est_monthly_spend_gbp'].apply(assign_spend_tier)
+    log['spend_tier_counts'] = qualified_df['spend_tier'].value_counts().to_dict()
+
+    city_breakdown = city_spend_tier_breakdown(qualified_df)
+
     # Rule 13 - QA checks, run against the qualified sheet (the one that
     # actually ships as the Cleaned Dataset).
     qa = run_qa_checks(qualified_df, disqualified_df, flagged_pairs)
@@ -709,6 +766,7 @@ def run_cleaning(df, date_anchor=None, remove_non_uk=False):
     return {
         'qualified': qualified_df.reset_index(drop=True),
         'disqualified': disqualified_df.reset_index(drop=True),
+        'city_spend_tier_breakdown': city_breakdown,
         'log': log,
         'flagged_pairs': flagged_pairs,
         'qa': qa,

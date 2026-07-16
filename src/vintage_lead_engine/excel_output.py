@@ -263,12 +263,14 @@ def _write_log_sheet(wb: Workbook, log: dict, qa: list, flagged_pairs: list):
        "group membership, only the merged date value and tie-breaking).")
 
 
-def _write_summary_sheet(wb: Workbook, qualified_df: pd.DataFrame):
+def _write_summary_sheet(wb: Workbook, qualified_df: pd.DataFrame, city_spend_tier_breakdown: pd.DataFrame = None):
     """Channel & CRM Summary: several small tables in one sheet, since
     none of them individually need their own tab."""
     ws: Worksheet = wb.create_sheet("Channel & CRM Summary")
     ws.column_dimensions["A"].width = 30
     ws.column_dimensions["B"].width = 16
+    for letter in ("C", "D", "E", "F"):
+        ws.column_dimensions[letter].width = 12
 
     def table(title, series_or_df):
         ws.append([title])
@@ -276,6 +278,12 @@ def _write_summary_sheet(wb: Workbook, qualified_df: pd.DataFrame):
         if isinstance(series_or_df, pd.Series):
             for idx, val in series_or_df.items():
                 ws.append([str(idx), val])
+        elif isinstance(series_or_df, pd.DataFrame):
+            ws.append(list(series_or_df.columns))
+            for cell in ws[ws.max_row]:
+                cell.font = Font(bold=True)
+            for row in series_or_df.itertuples(index=False):
+                ws.append(list(row))
         ws.append([])
 
     table("Store type (Physical Store vs Online Retailer)", qualified_df["store_type"].value_counts())
@@ -294,6 +302,14 @@ def _write_summary_sheet(wb: Workbook, qualified_df: pd.DataFrame):
     table("Contactability score distribution", qualified_df["contactability_score"].value_counts().sort_index())
     table("Data quality flag counts", qualified_df["data_quality_flag"].value_counts())
 
+    if "spend_tier" in qualified_df.columns:
+        tier_order = ["Tier 1", "Tier 2", "Tier 3", "Unknown"]
+        counts = qualified_df["spend_tier"].value_counts().reindex(tier_order).dropna()
+        table("Leads by spend_tier (Tier 1: GBP5k+/mo, Tier 2: GBP2k-4,999/mo, Tier 3: under GBP2k/mo)", counts)
+
+    if city_spend_tier_breakdown is not None and not city_spend_tier_breakdown.empty:
+        table("Lead count by city and spend_tier (sorted by total leads, descending)", city_spend_tier_breakdown)
+
 
 _COLOUR_LEGEND_NOTE = (
     "Row shading: yellow = Possible Duplicate - Unverified (Rule 2 flagged this row as a candidate "
@@ -303,13 +319,16 @@ _COLOUR_LEGEND_NOTE = (
 
 
 def build_crm_workbook(qualified_df: pd.DataFrame, disqualified_df: pd.DataFrame,
-                        log: dict, qa: list, flagged_pairs: list, output_path: str) -> dict:
+                        log: dict, qa: list, flagged_pairs: list, output_path: str,
+                        city_spend_tier_breakdown: pd.DataFrame = None) -> dict:
     """Builds the Part 2 workbook: Cleaned Dataset, Disqualified Leads,
     Cleaning Log, Channel & CRM Summary. qualified_df should already
     carry the Part B outreach columns (OUTREACH_TYPE, SUGGESTED_MESSAGE,
     MESSAGE_LOGIC, PERSONALISATION_ANGLE, RECOMMENDED_FOLLOW_UP_DATE) if
     generate-outreach has been run; if not, the Cleaned Dataset sheet
-    simply omits them."""
+    simply omits them. city_spend_tier_breakdown (see
+    crm_cleaning.city_spend_tier_breakdown()), if given, is rendered as
+    a table on the Channel & CRM Summary sheet."""
     wb = Workbook()
     wb.remove(wb.active)
 
@@ -318,7 +337,7 @@ def build_crm_workbook(qualified_df: pd.DataFrame, disqualified_df: pd.DataFrame
                  note=_COLOUR_LEGEND_NOTE)
     _write_sheet(wb, "Disqualified Leads", disqualified_df, freeze_first_col=True)
     _write_log_sheet(wb, log, qa, flagged_pairs)
-    _write_summary_sheet(wb, qualified_df)
+    _write_summary_sheet(wb, qualified_df, city_spend_tier_breakdown=city_spend_tier_breakdown)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
     wb.save(output_path)
