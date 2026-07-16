@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+build/
+dist/
+output/*.xlsx
+output/*.csv
+.pytest_cache/
+.DS_Store
+
+# Original case-study handover file and the untouched reference script it
+# was built from - superseded by data/part1_manchester_scrape.csv and the
+# src/vintage_lead_engine package, kept out of the repo on purpose.
+/*.xlsx
+/qualify_and_rank.py
