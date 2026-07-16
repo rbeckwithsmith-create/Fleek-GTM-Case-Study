@@ -26,6 +26,7 @@ generator; it will decline (blank message, clear reasoning) rather
 than guess at content for notes/phrases it doesn't recognise.
 """
 import argparse
+import os
 
 import pandas as pd
 
@@ -96,18 +97,26 @@ def _run_crm_cleaning(args):
     return run_cleaning(df, date_anchor=anchor, remove_non_uk=args.remove_non_uk)
 
 
+def _csv_path_for(output_path):
+    return os.path.splitext(output_path)[0] + ".csv"
+
+
 def _clean_crm(args):
     result = _run_crm_cleaning(args)
     info = build_crm_workbook(
         result["qualified"], result["disqualified"], result["log"], result["qa"], result["flagged_pairs"],
         args.output,
     )
+    csv_path = _csv_path_for(args.output)
+    result["qualified"].to_csv(csv_path, index=False)
+
     log = result["log"]
     print(f"Cleaned {log['starting_rows']} rows -> {log['unique_business_groups']} unique businesses "
           f"-> {log['qualified_leads']} qualified ({log['disqualified_by_rule_9_5']} disqualified by "
           f"category/charity-name qualification).")
     print(f"QA checks: {log['qa_checks_passed']}/{log['qa_checks_total']} passed.")
     print(f"Workbook written to {info['workbook']}.")
+    print(f"Cleaned Dataset also written to {csv_path}.")
 
 
 def _generate_outreach(args):
@@ -123,6 +132,8 @@ def _generate_outreach(args):
         elig, result["disqualified"], result["log"], result["qa"], result["flagged_pairs"],
         args.output,
     )
+    csv_path = _csv_path_for(args.output)
+    elig.to_csv(csv_path, index=False)
 
     n_eligible = int(elig["ELIGIBLE"].sum())
     n_drafted = int((elig["SUGGESTED_MESSAGE"] != "").sum())
@@ -130,6 +141,7 @@ def _generate_outreach(args):
           f"-> {n_drafted} messages drafted ({n_eligible - n_drafted} eligible but declined for lack of "
           f"personalisation).")
     print(f"Workbook written to {info['workbook']}.")
+    print(f"Cleaned Dataset + outreach columns also written to {csv_path}.")
 
 
 def build_parser() -> argparse.ArgumentParser:
