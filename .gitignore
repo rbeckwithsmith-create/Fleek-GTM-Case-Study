@@ -6,6 +6,10 @@ build/
 dist/
 output/*.xlsx
 output/*.csv
+# Part 2 deliverable (cleaned leads + outreach recommendations) is
+# committed on purpose, unlike other generated output.
+!output/crm_with_outreach.xlsx
+!output/crm_with_outreach.csv
 .pytest_cache/
 .DS_Store
 .claude/
