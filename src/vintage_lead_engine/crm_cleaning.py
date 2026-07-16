@@ -572,8 +572,13 @@ def _parse_sell_through_rate(s):
     return float(m.group()) / 100 if m else np.nan
 
 
-def run_cleaning(df, date_anchor=None):
+def run_cleaning(df, date_anchor=None, remove_non_uk=False):
     """Runs the full Part 2 cleaning pipeline (Rules 1-13) end to end.
+
+    remove_non_uk: Rule 5's flag-vs-remove toggle. Defaults to False
+    (flag only, matching the real client preference documented on
+    flag_non_uk() above) - pass True to match the original brief's
+    literal "remove non-UK leads" instruction instead.
 
     Returns a dict with:
       qualified: DataFrame of cleaned, qualified leads (Sheet 1)
@@ -620,8 +625,8 @@ def run_cleaning(df, date_anchor=None):
     df = classify_store_type(df)
 
     # Rule 5
-    df, non_uk_flagged, unverified_location = flag_non_uk(df, remove=False)
-    log['non_uk_flagged_not_removed'] = non_uk_flagged
+    df, non_uk_flagged, unverified_location = flag_non_uk(df, remove=remove_non_uk)
+    log['non_uk_flagged_not_removed' if not remove_non_uk else 'non_uk_removed'] = non_uk_flagged
     log['unverified_location_count'] = unverified_location
 
     # Rule 6 (last_contact_date/last_purchase_date are already parsed to

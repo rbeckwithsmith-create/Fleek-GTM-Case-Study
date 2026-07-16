@@ -3,21 +3,38 @@ Command-line entrypoint.
 
     vintage-lead-engine run --input data/part1_manchester_scrape.csv --output output/manchester_results.xlsx
     vintage-lead-engine run --input <any_future_scrape>.csv --output <results>.xlsx
+    vintage-lead-engine clean-crm --input data/part2_leads_and_customers.csv --output output/crm_cleaned.xlsx
+    vintage-lead-engine generate-outreach --input data/part2_leads_and_customers.csv --output output/crm_with_outreach.xlsx
 
-The pipeline (qualify -> cluster -> tier -> workbook) is identical for
-any scrape - no hardcoded row lookups, no city-specific logic, no
-assumed fields beyond the standard Maps-scrape columns. The optional
---real-shortlist flag layers in the separate real-shop enrichment demo
-(see enrichment.py) as its own workbook sheet; it is never blended into
-the main scrape's results.
+The Part 1 pipeline (qualify -> cluster -> tier -> workbook) is
+identical for any scrape - no hardcoded row lookups, no city-specific
+logic, no assumed fields beyond the standard Maps-scrape columns. The
+optional --real-shortlist flag layers in the separate real-shop
+enrichment demo (see enrichment.py) as its own workbook sheet; it is
+never blended into the main scrape's results.
+
+clean-crm and generate-outreach are Part 2 (self-contained - they only
+touch the Part2_leads_and_customers data, never Part 1's). clean-crm
+runs the CRM cleaning rules alone (crm_cleaning.py); generate-outreach
+runs cleaning AND adds the five outreach columns (outreach.py +
+outreach_content.py) to the same Cleaned Dataset sheet. See the
+README's Part 2 section for what outreach_content.py's authored
+message content is and is not - it is the specific, hand-authored
+content for the batch of leads in data/part2_leads_and_customers.csv,
+wired up as testable code rather than a general-purpose message
+generator; it will decline (blank message, clear reasoning) rather
+than guess at content for notes/phrases it doesn't recognise.
 """
 import argparse
 
 import pandas as pd
 
 from .cluster import cluster_by_walking_distance
+from .crm_cleaning import run_cleaning
 from .enrichment import load_real_shortlist
-from .excel_output import DEFAULT_MAX_STYLED_ROWS, build_workbook
+from .excel_output import DEFAULT_MAX_STYLED_ROWS, build_crm_workbook, build_workbook
+from .outreach import build_eligibility_frame
+from .outreach_content import build_message_for_lead
 from .qualify import qualify_dataframe
 from .tier import tier_dataframe
 
@@ -73,6 +90,48 @@ def _run(args):
         print(f"Real-shop enrichment demo included ({info.get('real_shop_rows', len(real_shop_df))} rows).")
 
 
+def _run_crm_cleaning(args):
+    df = pd.read_csv(args.input)
+    anchor = pd.Timestamp(args.anchor_date) if args.anchor_date else pd.Timestamp.now().normalize()
+    return run_cleaning(df, date_anchor=anchor, remove_non_uk=args.remove_non_uk)
+
+
+def _clean_crm(args):
+    result = _run_crm_cleaning(args)
+    info = build_crm_workbook(
+        result["qualified"], result["disqualified"], result["log"], result["qa"], result["flagged_pairs"],
+        args.output,
+    )
+    log = result["log"]
+    print(f"Cleaned {log['starting_rows']} rows -> {log['unique_business_groups']} unique businesses "
+          f"-> {log['qualified_leads']} qualified ({log['disqualified_by_rule_9_5']} disqualified by "
+          f"category/charity-name qualification).")
+    print(f"QA checks: {log['qa_checks_passed']}/{log['qa_checks_total']} passed.")
+    print(f"Workbook written to {info['workbook']}.")
+
+
+def _generate_outreach(args):
+    result = _run_crm_cleaning(args)
+    anchor = pd.Timestamp(args.anchor_date) if args.anchor_date else pd.Timestamp.now().normalize()
+
+    elig = build_eligibility_frame(result["qualified"], today=anchor)
+    messages = elig.apply(build_message_for_lead, axis=1, result_type="expand")
+    elig = pd.concat([elig, messages], axis=1)
+    elig = elig.drop(columns=["_ELIGIBILITY_REASON", "_DAYS_SINCE_CONTACT"])
+
+    info = build_crm_workbook(
+        elig, result["disqualified"], result["log"], result["qa"], result["flagged_pairs"],
+        args.output,
+    )
+
+    n_eligible = int(elig["ELIGIBLE"].sum())
+    n_drafted = int((elig["SUGGESTED_MESSAGE"] != "").sum())
+    print(f"Cleaned {result['log']['qualified_leads']} qualified leads -> {n_eligible} eligible for outreach "
+          f"-> {n_drafted} messages drafted ({n_eligible - n_drafted} eligible but declined for lack of "
+          f"personalisation).")
+    print(f"Workbook written to {info['workbook']}.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="vintage-lead-engine")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -88,6 +147,28 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Optional path to a real-shop enrichment shortlist CSV "
                              "(see data/real_manchester_shortlist.csv) to include as a separate demo sheet")
     run_p.set_defaults(func=_run)
+
+    clean_p = sub.add_parser("clean-crm", help="Run the Part 2 CRM cleaning rules on the leads/customers CSV")
+    clean_p.add_argument("--input", required=True, help="Path to the raw Part2_leads_and_customers CSV")
+    clean_p.add_argument("--output", required=True, help="Path to write the Excel workbook to")
+    clean_p.add_argument("--anchor-date", default=None,
+                          help="Reference 'today' for date parsing/inference, YYYY-MM-DD (default: now) - "
+                               "pass this for reproducible output rather than relying on the run date")
+    clean_p.add_argument("--remove-non-uk", action="store_true",
+                          help="Remove non-UK leads instead of flagging them (Rule 5's literal-brief toggle; "
+                               "default is flag-only)")
+    clean_p.set_defaults(func=_clean_crm)
+
+    outreach_p = sub.add_parser("generate-outreach",
+                                 help="Run Part 2 CRM cleaning AND add the five outreach columns")
+    outreach_p.add_argument("--input", required=True, help="Path to the raw Part2_leads_and_customers CSV")
+    outreach_p.add_argument("--output", required=True, help="Path to write the Excel workbook to")
+    outreach_p.add_argument("--anchor-date", default=None,
+                             help="Reference 'today' for date parsing/Last-Contacted timing, YYYY-MM-DD "
+                                  "(default: now) - pass this for reproducible output")
+    outreach_p.add_argument("--remove-non-uk", action="store_true",
+                             help="Remove non-UK leads instead of flagging them (see clean-crm)")
+    outreach_p.set_defaults(func=_generate_outreach)
 
     return parser
 

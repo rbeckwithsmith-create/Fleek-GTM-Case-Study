@@ -30,49 +30,73 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 HEADER_FILL = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
+SECTION_FONT = Font(bold=True, size=12)
 WRAP_ALIGNMENT = Alignment(wrap_text=True, vertical="top")
 TOP_ALIGNMENT = Alignment(vertical="top")
+POSSIBLE_DUPLICATE_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
 
 # Columns whose content is long free text and should wrap rather than
 # be squeezed onto one line.
 WRAP_COLUMNS = {
     "qualification_reason", "tier_reasoning", "top_review",
-    "research_notes", "price_band",
+    "research_notes", "price_band", "notes", "SUGGESTED_MESSAGE",
+    "MESSAGE_LOGIC", "_ELIGIBILITY_REASON",
 }
 
 DEFAULT_MAX_STYLED_ROWS = 2000
 
 
-def _write_sheet(wb: Workbook, sheet_name: str, df: pd.DataFrame, freeze_first_col: bool = False):
+def _write_sheet(wb: Workbook, sheet_name: str, df: pd.DataFrame, freeze_first_col: bool = False,
+                  highlight_col: str = None, highlight_contains: str = None, note: str = None):
+    """highlight_col/highlight_contains: if given, any row whose
+    highlight_col value contains highlight_contains gets a fill colour
+    (see POSSIBLE_DUPLICATE_FILL) - used for the Rule 2 "flagged, not
+    merged" duplicate rows so they're visually distinguishable, not just
+    text-flagged.
+
+    note: an optional italic caption row written above the header (e.g.
+    a colour-legend explanation) - freeze panes and auto-filter are
+    computed to account for the extra row rather than bolted on
+    afterwards, which would leave them pointing at the wrong rows."""
     ws: Worksheet = wb.create_sheet(sheet_name)
+    header_row = 1
+    if note:
+        ws.append([note])
+        ws["A1"].font = Font(italic=True, size=9)
+        header_row = 2
+
     if df.empty:
         ws.append(["(no rows)"])
         return ws
 
     columns = list(df.columns)
     ws.append(columns)
-    for cell in ws[1]:
+    for cell in ws[header_row]:
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
         cell.alignment = TOP_ALIGNMENT
 
+    highlight_idx = columns.index(highlight_col) + 1 if highlight_col in columns else None
     for row in df.itertuples(index=False):
         ws.append(list(row))
+        if highlight_idx is not None:
+            value = str(row[highlight_idx - 1])
+            if highlight_contains in value:
+                for cell in ws[ws.max_row]:
+                    cell.fill = POSSIBLE_DUPLICATE_FILL
 
     for col_idx, col_name in enumerate(columns, start=1):
         letter = get_column_letter(col_idx)
         wrap = col_name in WRAP_COLUMNS
         width = 40 if wrap else min(max(len(str(col_name)) + 2, 12), 30)
         ws.column_dimensions[letter].width = width
-        if wrap:
-            for cell in ws[letter][1:]:
-                cell.alignment = WRAP_ALIGNMENT
-        else:
-            for cell in ws[letter][1:]:
-                cell.alignment = TOP_ALIGNMENT
+        data_rows = ws[letter][header_row:]
+        for cell in data_rows:
+            cell.alignment = WRAP_ALIGNMENT if wrap else TOP_ALIGNMENT
 
-    ws.freeze_panes = "B2" if freeze_first_col else "A2"
-    ws.auto_filter.ref = ws.dimensions
+    freeze_col = "B" if freeze_first_col else "A"
+    ws.freeze_panes = f"{freeze_col}{header_row + 1}"
+    ws.auto_filter.ref = f"A{header_row}:{get_column_letter(len(columns))}{ws.max_row}"
     return ws
 
 
@@ -158,3 +182,144 @@ def build_workbook(full_df: pd.DataFrame, output_path: str,
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
     wb.save(output_path)
     return result
+
+
+# =============================================================================
+# Part 2 - CRM cleaning + outreach workbook
+# =============================================================================
+def _write_log_sheet(wb: Workbook, log: dict, qa: list, flagged_pairs: list):
+    """Cleaning Log sheet: counts, QA results, and the documented
+    assumptions the brief asks to log rather than silently apply."""
+    ws: Worksheet = wb.create_sheet("Cleaning Log")
+    ws.column_dimensions["A"].width = 46
+    ws.column_dimensions["B"].width = 70
+
+    def section(title):
+        ws.append([title])
+        ws[f"A{ws.max_row}"].font = SECTION_FONT
+        ws.append([])
+
+    def kv(key, value):
+        ws.append([key, value])
+        ws[f"B{ws.max_row}"].alignment = WRAP_ALIGNMENT
+
+    section("Row counts")
+    kv("Starting rows", log.get("starting_rows"))
+    kv("Removed as 'No Fit' (Rule 1)", log.get("no_fit_removed"))
+    kv("Duplicate rows consolidated (Rule 2)", log.get("duplicate_rows_consolidated"))
+    kv("Unique business groups after dedup", log.get("unique_business_groups"))
+    kv("Disqualified by category/charity-name qualification (Rule 9.5)", log.get("disqualified_by_rule_9_5"))
+    kv("Qualified leads (final Cleaned Dataset row count)", log.get("qualified_leads"))
+    ws.append([])
+
+    section("Rule 5 - Non-UK handling")
+    if "non_uk_flagged_not_removed" in log:
+        kv("Non-UK leads FLAGGED (not removed - see README deviation note)", log["non_uk_flagged_not_removed"])
+    else:
+        kv("Non-UK leads REMOVED (--remove-non-uk passed, matching the original brief literally)", log.get("non_uk_removed"))
+    kv("Rows with no country data at all (flagged 'Unverified Location', never assumed UK)", log.get("unverified_location_count"))
+    ws.append([])
+
+    section("Rule 2 - Duplicate candidates flagged, not merged")
+    kv("Pairs flagged for manual review (city/country conflict guard fired)", log.get("possible_duplicate_pairs_flagged"))
+    for a, b, key, city_a, city_b, country_a, country_b in flagged_pairs:
+        kv(f"  {a} vs {b} (matched on {key})", f"{city_a}, {country_a}  vs  {city_b}, {country_b}")
+    ws.append([])
+
+    section("Rule 7 - Contact information completion")
+    kv("Fields found via genuine research", log.get("contact_fields_found_via_research"))
+    kv("Fields defaulted to 'unknown' (business names in this dataset are synthetic/placeholder - "
+       "see README)", log.get("contact_fields_defaulted_to_unknown"))
+    ws.append([])
+
+    section("Rule 13 - QA checks")
+    kv("Checks passed", f"{log.get('qa_checks_passed')} / {log.get('qa_checks_total')}")
+    for name, passed, detail in qa:
+        kv(f"  [{'PASS' if passed else 'FAIL'}] {name}", detail)
+    ws.append([])
+
+    section("Documented assumptions and resolutions")
+    kv("Rule 11 contactability_score contradiction",
+       "The brief's own table has '2 = Missing three' and '1 = Only one contact method' both describing "
+       "exactly 1-of-4 contact methods present, with different scores. Resolved by trusting the more "
+       "structured 'missing N' framing (a clean monotonic scale: 0 methods=0, 1=2, 2=3, 3=4, 4=5), since "
+       "5 of 6 rows in the brief's table agree on that reading.")
+    kv("Rule 6 bare-date year inference",
+       "Dates with no year (e.g. '20 Jun') are assumed to fall near the cleaning run's anchor date, rolled "
+       "back a year if that would place them implausibly in the future - a genuine assumption, not a "
+       "certainty, applied via parse_date_flex().")
+    kv("Rule 6 extension: last_purchase_date 'never'",
+       "The brief's Special Rule only names last_contact_date for the 'never' fallback; extended to "
+       "last_purchase_date too, since most leads simply haven't purchased yet, which 'never' states "
+       "accurately - the generic 'unknown' fallback would wrongly imply doubt.")
+    kv("Rule 5 flag-vs-remove choice",
+       "The original brief says REMOVE non-UK leads; flag_non_uk() defaults to remove=False (flag only) "
+       "instead, per real client preference - remove=True is a one-line change away, not a rebuild.")
+    kv("Date parser bug fix (found running this pipeline)",
+       "parse_date_flex()'s dayfirst=True was misreading already-year-first dates like '2026/04/10' as "
+       "4 October instead of 10 April, producing last-contact dates in the future. Fixed to only apply "
+       "dayfirst semantics when the string does not already start with a 4-digit year; does not change "
+       "the pinned qualified/duplicate-group counts (date parsing doesn't affect qualification or dedup "
+       "group membership, only the merged date value and tie-breaking).")
+
+
+def _write_summary_sheet(wb: Workbook, qualified_df: pd.DataFrame):
+    """Channel & CRM Summary: several small tables in one sheet, since
+    none of them individually need their own tab."""
+    ws: Worksheet = wb.create_sheet("Channel & CRM Summary")
+    ws.column_dimensions["A"].width = 30
+    ws.column_dimensions["B"].width = 16
+
+    def table(title, series_or_df):
+        ws.append([title])
+        ws[f"A{ws.max_row}"].font = SECTION_FONT
+        if isinstance(series_or_df, pd.Series):
+            for idx, val in series_or_df.items():
+                ws.append([str(idx), val])
+        ws.append([])
+
+    table("Store type (Physical Store vs Online Retailer)", qualified_df["store_type"].value_counts())
+    table("Leads by city", qualified_df["city"].value_counts().head(20))
+    table("Leads by pipeline_status", qualified_df["pipeline_status"].value_counts())
+    table("Leads by stage_clean", qualified_df["stage_clean"].value_counts())
+
+    active_customer = qualified_df["pipeline_status"].eq("Customer").sum()
+    churned = qualified_df["pipeline_status"].eq("Churned").sum()
+    ws.append(["Active vs Churned customers"])
+    ws[f"A{ws.max_row}"].font = SECTION_FONT
+    ws.append(["Active Customer (pipeline_status=Customer)", int(active_customer)])
+    ws.append(["Churned (pipeline_status=Churned)", int(churned)])
+    ws.append([])
+
+    table("Contactability score distribution", qualified_df["contactability_score"].value_counts().sort_index())
+    table("Data quality flag counts", qualified_df["data_quality_flag"].value_counts())
+
+
+_COLOUR_LEGEND_NOTE = (
+    "Row shading: yellow = Possible Duplicate - Unverified (Rule 2 flagged this row as a candidate "
+    "match with a city/country conflict - kept separate, not merged; verify by hand before treating "
+    "as the same business)."
+)
+
+
+def build_crm_workbook(qualified_df: pd.DataFrame, disqualified_df: pd.DataFrame,
+                        log: dict, qa: list, flagged_pairs: list, output_path: str) -> dict:
+    """Builds the Part 2 workbook: Cleaned Dataset, Disqualified Leads,
+    Cleaning Log, Channel & CRM Summary. qualified_df should already
+    carry the Part B outreach columns (OUTREACH_TYPE, SUGGESTED_MESSAGE,
+    MESSAGE_LOGIC, PERSONALISATION_ANGLE, RECOMMENDED_FOLLOW_UP_DATE) if
+    generate-outreach has been run; if not, the Cleaned Dataset sheet
+    simply omits them."""
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    _write_sheet(wb, "Cleaned Dataset", qualified_df, freeze_first_col=True,
+                 highlight_col="data_quality_flag", highlight_contains="Possible Duplicate - Unverified",
+                 note=_COLOUR_LEGEND_NOTE)
+    _write_sheet(wb, "Disqualified Leads", disqualified_df, freeze_first_col=True)
+    _write_log_sheet(wb, log, qa, flagged_pairs)
+    _write_summary_sheet(wb, qualified_df)
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
+    wb.save(output_path)
+    return {"workbook": output_path, "qualified_rows": len(qualified_df), "disqualified_rows": len(disqualified_df)}

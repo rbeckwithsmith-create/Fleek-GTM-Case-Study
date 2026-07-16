@@ -358,14 +358,28 @@ def _wrap_words(text, lo=50, hi=150):
 
 
 def build_message_for_lead(row) -> dict:
-    """Returns SUGGESTED_MESSAGE, MESSAGE_LOGIC, PERSONALISATION_ANGLE
-    for one eligible row. Assumes row already carries OUTREACH_TYPE,
-    ELIGIBLE, and the cleaned Part A fields (notes, owner_name, stage_clean,
-    country, etc.)."""
+    """Returns SUGGESTED_MESSAGE, MESSAGE_LOGIC, PERSONALISATION_ANGLE for
+    one row. Assumes row already carries ELIGIBLE, OUTREACH_TYPE,
+    RECOMMENDED_FOLLOW_UP_DATE, _ELIGIBILITY_REASON (from
+    outreach.build_eligibility_frame) and the cleaned Part A fields
+    (notes, owner_name, stage_clean, country, etc.).
+
+    Eligibility is checked FIRST: ineligible/deferred rows (excluded
+    stage, or contacted too recently) never reach the content-drafting
+    logic below - they get a blank message and the deterministic
+    reason outreach.py already computed, exactly as the brief's
+    "decide eligibility before drafting anything" ordering requires."""
     outreach_type = row["OUTREACH_TYPE"]
     stage_clean = row.get("stage_clean")
     country = row.get("country")
     owner_name = row.get("owner_name")
+
+    if not row.get("ELIGIBLE", True):
+        return {
+            "SUGGESTED_MESSAGE": "",
+            "MESSAGE_LOGIC": row.get("_ELIGIBILITY_REASON", "Not eligible for outreach."),
+            "PERSONALISATION_ANGLE": "",
+        }
 
     angle, clause, objection_clause, raw_objection = _focus_angle(row.get("notes"))
     fallback_used = None
