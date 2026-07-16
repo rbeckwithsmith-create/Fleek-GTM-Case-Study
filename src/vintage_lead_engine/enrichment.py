@@ -23,22 +23,30 @@ import pandas as pd
 
 NOT_CONFIRMED = "Not confirmed"
 
-# Columns every row of the dummy Maps scrape carries - the minimum
-# schema qualify_dataframe()/cluster_by_walking_distance() need.
-SCRAPE_COLUMNS = [
+# Columns every row of the real shortlist must carry - the minimum
+# schema qualify_dataframe()/cluster_by_walking_distance() need, plus
+# google_review_count (see below). Note this is deliberately NOT the
+# same list as the dummy scrape's columns: `rating` was never part of
+# the requested enrichment fields or the Tier Key, so it has no place
+# here, and `review_count` is named `google_review_count` instead of
+# the generic scrape-schema name to make explicit that it was looked
+# up from each shop's real Google Maps listing, not scraped in bulk.
+REQUIRED_COLUMNS = [
     "place_name", "maps_category", "full_address", "lat", "lng",
-    "rating", "review_count", "top_review", "website", "phone", "price_level",
+    "google_review_count", "top_review", "website", "phone", "price_level",
 ]
 
 # Enrichment-only columns layered on top for the real shortlist. Only
 # tier_dataframe() reads locations/ig_followers/brand_fit/
-# ecommerce_present/inventory_scale for scoring; ig_handle,
-# independent_ownership and research_notes are carried through to the
-# output workbook for BDR context but never affect the Tier Key itself.
+# ecommerce_present for scoring; ig_handle, independent_ownership and
+# research_notes are carried through to the output workbook for BDR
+# context but never affect the Tier Key itself. There is no
+# inventory_scale column here - it was in the master case-study
+# brief's general enrichment field list but was never actually
+# requested for this specific shortlist.
 ENRICHMENT_COLUMNS = [
     "locations", "ig_handle", "ig_followers", "ecommerce_present",
-    "price_band", "brand_fit", "inventory_scale", "independent_ownership",
-    "research_notes",
+    "price_band", "brand_fit", "independent_ownership", "research_notes",
 ]
 
 
@@ -48,22 +56,30 @@ def load_real_shortlist(path) -> pd.DataFrame:
     treated as missing evidence (NaN / False), never as a 0 or a pass -
     a shop with an unconfirmed Instagram count is scored as if that
     field simply isn't there, exactly like a scrape-only row missing
-    enrichment entirely."""
+    enrichment entirely.
+
+    tier_dataframe() scores a column literally named "review_count", so
+    this loader aliases google_review_count into a "review_count"
+    column purely for that in-memory scoring pass - it is never written
+    back out to the CSV, which keeps google_review_count as the single
+    source of truth on disk instead of two columns holding the same
+    number under different names."""
     df = pd.read_csv(path)
 
-    missing = [c for c in SCRAPE_COLUMNS if c not in df.columns]
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
-        raise ValueError(f"Real shortlist is missing required scrape columns: {missing}")
+        raise ValueError(f"Real shortlist is missing required columns: {missing}")
 
-    for col in ("locations", "ig_followers", "review_count", "rating"):
+    for col in ("locations", "ig_followers", "google_review_count"):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     if "ecommerce_present" in df.columns:
         df["ecommerce_present"] = (
             df["ecommerce_present"].astype(str).str.strip().str.lower().eq("true")
         )
-    for col in ("brand_fit", "inventory_scale"):
-        if col in df.columns:
-            df[col] = df[col].fillna("").replace(NOT_CONFIRMED, "")
+    if "brand_fit" in df.columns:
+        df["brand_fit"] = df["brand_fit"].fillna("").replace(NOT_CONFIRMED, "")
+
+    df["review_count"] = df["google_review_count"]
 
     return df

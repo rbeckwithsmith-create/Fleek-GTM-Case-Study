@@ -155,8 +155,10 @@ Running `vintage-lead-engine run` produces a workbook with:
    visible and filterable rather than hidden or deleted.
 3. **Cluster Analysis** - one row per cluster: size, Tier 1/2/3 counts,
    and which named shops are in it.
-4. **Real Shop Demo (Manchester)** - only present when
-   `--real-shortlist` is passed; see below.
+4. **Real Shop Demo (Manchester)** and **Real Shop Demo - Clusters** -
+   only present when `--real-shortlist` is passed; the same
+   Enriched-Data-style and Cluster-Analysis-style views, computed for
+   the real shortlist instead - see below.
 
 Headers are bold with frozen panes, auto-filter is enabled on every
 sheet, and long free-text columns (`qualification_reason`,
@@ -189,21 +191,31 @@ Separately, `data/real_manchester_shortlist.csv` is a shortlist of
 researched live (not fabricated, not swapped into the dummy dataset):
 Pop Boutique, Blue Rinse, Bags of Flavour, Stare Society, Oxfam
 Originals, Cow Vintage, Beg Steal & Borrow, American Graffiti, Retro
-Rehab, Bionic Seven, and SYLK. For each shop, address, location count,
-Instagram handle + follower count, website/ecommerce presence, named
-brand fit, and independent-ownership status were researched from
-public sources. **Where a fact couldn't be confirmed, the field says
-"Not confirmed" rather than a guessed, plausible-looking number** - see
-`research_notes` in the CSV for the reasoning behind every field on
-every row.
+Rehab, Bionic Seven, and SYLK. For each shop, address, `lat`/`lng`
+(geocoded from the shop's real postcode via postcodes.io, never
+estimated from the city centre), location count, Google review count
+(`google_review_count` - looked up from each shop's actual Google Maps
+listing, not the same field as the dummy scrape's generic
+`review_count`), phone number, Instagram handle + follower count,
+website/ecommerce presence, named brand fit, and independent-ownership
+status were researched from public sources. **Where a fact couldn't be
+confirmed, the field says "Not confirmed" rather than a guessed,
+plausible-looking number** - see `research_notes` in the CSV for the
+reasoning behind every field on every row. Note this shortlist
+deliberately does **not** have `rating` or `inventory_scale` columns -
+neither was ever part of the requested enrichment fields or the Tier
+Key for this file.
 
-Running the same `qualify.py`/`tier.py` logic against this real
-shortlist (via `--real-shortlist`) shows what the framework produces
-once genuine enrichment data exists - a worked example, kept in its
-own clearly-labelled sheet, never blended into the dummy-scrape
-results. Two results are worth calling out because they demonstrate
-the logic actually working on real-world data, not just the synthetic
-test cases:
+Running the exact same `qualify.py`/`cluster.py`/`tier.py` logic
+against this real shortlist (via `--real-shortlist`) computes its
+`qualifies`, `tier`, and `cluster_id` columns directly in the CSV, and
+shows what the framework produces once genuine enrichment data exists -
+a worked example, kept in its own clearly-labelled sheets (including a
+"Real Shop Demo - Clusters" breakdown mirroring the main Cluster
+Analysis sheet), never blended into the dummy-scrape results. A few
+results are worth calling out because they demonstrate the logic
+actually working on real-world data, not just the synthetic test
+cases:
 
 - **Oxfam Originals** is a real Oxfam-run vintage/designer concept
   store on Oldham Street. Its name triggers the same charity-name
@@ -213,14 +225,41 @@ test cases:
   or a literal "curated vintage"/"designer vintage" phrase, so it does
   **not** clear the strong-evidence override - and is disqualified,
   exactly like the dummy-data charity shops.
+- **American Graffiti** was originally recorded as a single Afflecks
+  stall. Re-verification found it actually trades from **two** current
+  locations (the original 1982 Afflecks stall and a Hilton Street
+  flagship open since 2005), which clears Tier 1 on locations alone -
+  a real example of enrichment data changing a result once it's
+  properly checked, not assumed from the first source found.
 - **Bionic Seven** has a genuinely **Strong** Brand Fit (five named
   brands confirmed in sourced coverage: Barbour, Berghaus, Rab,
-  Adidas, Levi's) but lands in **Tier 3** anyway, because Tier 1's
-  "Strong Brand Fit" criterion also requires confirmed active
-  ecommerce, which research didn't turn up for this shop. It's a real
-  example of why Brand Fit alone doesn't guarantee a high tier - and a
-  good candidate for a BDR to call directly and confirm ecommerce
-  before re-scoring, rather than the tool silently assuming it.
+  Adidas, Levi's) - it also separately clears Tier 1 outright on a
+  confirmed 9,488 Instagram followers, showing the Tier Key's "ANY ONE
+  of" criteria are genuinely independent: a shop can qualify for Tier 1
+  on Instagram reach alone even before Brand Fit and ecommerce are
+  fully resolved.
+- **SYLK**'s real address (39 Devonshire Street North, Ardwick) is
+  about 1.8km from the Northern Quarter, and its own Instagram
+  following (24,000) is what pushes it into Tier 1 - not proximity to
+  the other shops. It correctly lands in its own single-shop cluster
+  rather than being pulled into the Northern Quarter cluster, and
+  Stare Society (Chinatown) does the same for a subtler reason: it's
+  within 0.6km of *some* Northern Quarter shops but not all of them, so
+  true complete linkage keeps it separate rather than chaining it in
+  through its nearest neighbours.
+
+Phone numbers in this file were cross-checked against at least one
+independent source before being recorded, after an initial pass turned
+up two concrete traps worth knowing about: one aggregator returned a
+Leeds (0113) area-code number for Blue Rinse's Manchester store (Blue
+Rinse operates in both cities, and the aggregator had evidently
+cross-referenced the wrong location); and the only phone number
+findable for two independent traders inside Afflecks Palace (Beg Steal
+& Borrow, American Graffiti) was the shopping centre's own shared
+building line, not either trader's own number - using it would have
+misattributed the building's contact details to a specific stall.
+Both traps are recorded in `research_notes` on the relevant rows rather
+than silently corrected.
 
 `research_notes` on the Retro Rehab row also documents a real instance
 of a naming collision worth knowing about generally: a Retro Rehab

@@ -152,6 +152,7 @@ def build_workbook(full_df: pd.DataFrame, output_path: str,
 
     if real_shop_df is not None and not real_shop_df.empty:
         _write_sheet(wb, "Real Shop Demo (Manchester)", _ranked(real_shop_df), freeze_first_col=True)
+        _write_sheet(wb, "Real Shop Demo - Clusters", _cluster_analysis(real_shop_df))
         result["real_shop_rows"] = len(real_shop_df)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
