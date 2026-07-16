@@ -11,8 +11,6 @@ output/*.csv
 !output/PART 1 - Which shops do I visit.xlsx
 !output/PART 2 - How do I reach them.xlsx
 !output/PART 2 - How do I reach them.csv
-!output/crm_cleaned.xlsx
-!output/real_manchester_shortlist.xlsx
 .pytest_cache/
 .DS_Store
 .claude/
