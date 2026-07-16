@@ -598,6 +598,24 @@ def city_spend_tier_breakdown(df: pd.DataFrame) -> pd.DataFrame:
     return pivot
 
 
+SPEND_TIER_ORDER = {'Tier 1': 0, 'Tier 2': 1, 'Tier 3': 2, 'Unknown': 3}
+
+
+def sort_by_spend_tier(df: pd.DataFrame) -> pd.DataFrame:
+    """Reorders rows Tier 1 -> Tier 2 -> Tier 3 -> Unknown (highest
+    spend first within a tier), so the Cleaned Dataset output - CSV
+    included, which has no interactive filter of its own - is already
+    grouped by spend_tier without needing to click a filter dropdown.
+    Excel's own auto-filter on the spend_tier column still works for
+    ad-hoc re-filtering on top of this base order."""
+    df = df.copy()
+    df['_spend_tier_rank'] = df['spend_tier'].map(SPEND_TIER_ORDER).fillna(4)
+    out = df.sort_values(
+        ['_spend_tier_rank', 'est_monthly_spend_gbp'], ascending=[True, False],
+    ).drop(columns='_spend_tier_rank').reset_index(drop=True)
+    return out
+
+
 # =============================================================================
 # ORCHESTRATION - runs Rules 1-13 in sequence, end to end.
 #

@@ -31,7 +31,7 @@ import os
 import pandas as pd
 
 from .cluster import cluster_by_walking_distance
-from .crm_cleaning import run_cleaning
+from .crm_cleaning import run_cleaning, sort_by_spend_tier
 from .enrichment import load_real_shortlist
 from .excel_output import DEFAULT_MAX_STYLED_ROWS, build_crm_workbook, build_workbook
 from .outreach import build_eligibility_frame
@@ -103,12 +103,13 @@ def _csv_path_for(output_path):
 
 def _clean_crm(args):
     result = _run_crm_cleaning(args)
+    qualified = sort_by_spend_tier(result["qualified"])
     info = build_crm_workbook(
-        result["qualified"], result["disqualified"], result["log"], result["qa"], result["flagged_pairs"],
+        qualified, result["disqualified"], result["log"], result["qa"], result["flagged_pairs"],
         args.output, city_spend_tier_breakdown=result["city_spend_tier_breakdown"],
     )
     csv_path = _csv_path_for(args.output)
-    result["qualified"].to_csv(csv_path, index=False)
+    qualified.to_csv(csv_path, index=False)
 
     log = result["log"]
     print(f"Cleaned {log['starting_rows']} rows -> {log['unique_business_groups']} unique businesses "
@@ -128,6 +129,7 @@ def _generate_outreach(args):
     messages = elig.apply(build_message_for_lead, axis=1, result_type="expand")
     elig = pd.concat([elig, messages], axis=1)
     elig = elig.drop(columns=["_ELIGIBILITY_REASON", "_DAYS_SINCE_CONTACT"])
+    elig = sort_by_spend_tier(elig)
 
     info = build_crm_workbook(
         elig, result["disqualified"], result["log"], result["qa"], result["flagged_pairs"],
