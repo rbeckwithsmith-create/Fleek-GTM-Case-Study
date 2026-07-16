@@ -243,7 +243,8 @@ def merge_duplicate_groups(df, date_anchor):
 
     df = df.copy()
     df['_dt_contact'] = df['last_contact_date'].apply(lambda s: parse_date_flex(s, date_anchor))
-    df['_dt_purchase'] = df['last_purchase_date'].apply(lambda s: parse_date_flex(s, date_anchor))
+    df['_dt_purchase'] = df['last_purchase_date'].apply(
+        lambda s: parse_date_flex(s, date_anchor, must_not_be_future=True))
     stage_parsed = df['lead_stage'].apply(clean_stage)
     df['_stage_raw'] = stage_parsed.apply(lambda t: t[0])
     df['_stage_clean'] = stage_parsed.apply(lambda t: t[1])
@@ -350,7 +351,7 @@ def flag_non_uk(df, remove=False):
 # =============================================================================
 # RULE 6: Standardise dates
 # =============================================================================
-def parse_date_flex(s, anchor):
+def parse_date_flex(s, anchor, must_not_be_future=False):
     """Handles the real-world format zoo: DD/MM/YYYY, YYYY/MM/DD,
     YYYY-MM-DD, 'Month D YYYY', and bare 'D Mon' with no year. Bare
     dates are assumed to fall near `anchor` (pass roughly "today" for
@@ -358,6 +359,16 @@ def parse_date_flex(s, anchor):
     implausibly in the future relative to anchor - document this as an
     assumption in the cleaning log, since it's a real ambiguity, not a
     certainty.
+
+    must_not_be_future tightens that rollback for fields where a future
+    date is never valid regardless of the grace window (last_purchase_date
+    - a purchase cannot have happened yet). Found running this against
+    the real export: a bare 'Aug 18' last_purchase_date landed 33 days
+    after the anchor, inside the general 60-day grace window meant for
+    last_contact_date (which CAN legitimately reference a near-term
+    scheduled contact) - but a past purchase can never be in the future
+    at all, so that field rolls back on ANY future bare date, not just
+    ones more than 60 days out.
 
     BUG FIX (found running this against the real export): dateutil's
     dayfirst=True applies day-before-month disambiguation to the first
@@ -379,7 +390,8 @@ def parse_date_flex(s, anchor):
         dt = dtparser.parse(s, dayfirst=not year_first, yearfirst=year_first, default=anchor)
     except Exception:
         return pd.NaT
-    if not has_year and dt > anchor + pd.Timedelta(days=60):
+    grace = pd.Timedelta(days=0) if must_not_be_future else pd.Timedelta(days=60)
+    if not has_year and dt > anchor + grace:
         dt = dt.replace(year=dt.year - 1)
     return pd.Timestamp(dt.date())
 
